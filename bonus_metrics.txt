@@ -1,0 +1,65 @@
+select
+WL.mindstrong_id,
+organizationName,
+b.intakeDate,
+-- /new enrollees who have not completed intake( intake date is null) will assign to manager panel[ can exclude when measure peformance]
+enroll.dateenrolled,
+if (month(b.intakeDate) = month(current_date()), "New_enrolled_current_month","existing_pt") as new_enrolled,
+case when b.intakeDate>= "2019-10-01" then TIMESTAMPDIFF(month,b.intakeDate,CURRENT_DATE()) 
+    else TIMESTAMPDIFF(month,"2019-10-01",CURRENT_DATE()) end as month_diff,
+WL.patient_panel_name,
+case when summary like '%MHS Care Plan%' then 1 else 0 end as care_plan,     
+case when position("STRENGTHS:" in summary)>0 and position("TREATMENT APPROACHES:" in summary) >0 
+       and (position("TREATMENT APPROACHES:" in summary)- position("STRENGTHS:" in summary)) >=30 then "care_plan_old"
+     when position("GOALS (Patients Requests and Hopes):" in summary) > 0 and position("STRENGTHS:" in summary) > 0
+     and (position("GOALS (Patients Requests and Hopes):" in summary)- position("STRENGTHS:" in summary)) >= 30 then "care_plan_old"
+     when position("GOALS" in summary) > 0 and position("STRENGTHS:" in summary) > 0
+     and (position("GOALS" in summary) - position("STRENGTHS:" in summary)) >= 30 then "care_plan_old"
+     when position("STRENGTHS:" in summary)>0 and position("REFERRALS/CARE COORDINATION NEEDS:" in summary) >0 
+     and (position("REFERRALS/CARE COORDINATION NEEDS:" in summary)- position("STRENGTHS:" in summary)) >=30 then "care_plan_new"
+     when position("Patients Goals:" in summary)>0 and position("MHS Internal Goals for Improved Care:" in summary) >0
+     and (position("MHS Internal Goals for Improved Care:" in summary) - position("Patients Goals:" in summary)) >30 then "care_plan_new"
+     when position("GOALS" in summary) > 0 and position("Coping" in summary) > 0
+     and abs((position("Coping" in summary) - position("goals" in summary))) >= 30 then "coping"
+     else null end as S_care_plan,
+    
+count(distinct (case when month >=10 then month else null end)) AS month_Q4,
+sum(num_session) as total_session
+from
+(SELECT 
+distinct mindstrong_id,
+patient_panel_name
+FROM rpt_patient_panels
+where patient_panel_name in ("Jake-Ross-UnitedHealthcare-Ohio","Melanie-Nimmo-UnitedHealthcare-Ohio",
+                             "Trevon-Bennett-UnitedHealthcare-Ohio","April-Blue-UnitedHealthcare-Ohio",
+                             "Amanda-Reagan-Humana","Michela-Passoni-Humana","Nichelle-Alva-Humana",
+                              "Mariam-Tahiry-Humana","Ashley-Larche-Humana","Chrissie-Chapman-Humana",
+                              "Bri-Pumphrey-Humana","Neena-Hamamcy-Humana","Emily-Roney-UnitedHealthcare-Ohio","Natalia-Kazakevich-Humana")) WL
+LEFT JOIN rpt_case_summaries A
+ON WL.mindstrong_id =A.mindstrongid
+LEFT JOIN rpt_patients b on WL.mindstrong_id = b.mindstrongId
+LEFT JOIN (select
+mindstrongid,
+EXTRACT(MONTH FROM eventdate) as month,
+count(distinct eventid) as num_session
+from rpt_patient_events
+where
+eventType = 'NOTE' AND 
+(eventContent like '%Scheduled session - Messaging%' or
+eventContent like '%Scheduled session - Phone%' or
+left(eventContent,50) like '%SBC - BUSINESS HOURS CONTACT%' or
+left(eventContent,50) like '%SBC - PHONE NOTE%')
+group by 1,2) evt
+on WL.mindstrong_id = evt.mindstrongid
+left join (select 
+        mindstrongid,
+        dateenrolled
+        from rpt_patients
+        group by 1,2) enroll
+on WL.mindstrong_id =enroll.mindstrongid        
+
+where organizationName in ('Humana','UnitedHealthcare')
+group by 1,2,3,4,5,6,7
+
+
+
